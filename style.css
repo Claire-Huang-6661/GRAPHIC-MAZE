@@ -169,6 +169,9 @@ h2 {
   font-family: "Courier New", monospace;
   font-size: 12px;
   line-height: 1.4;
+  direction: ltr;
+  unicode-bidi: isolate;
+  transform: none;
 }
 
 .maze-text-input::placeholder {

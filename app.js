@@ -9,6 +9,11 @@ const VIEW_LOGICAL_W = 640;
 const VIEW_LOGICAL_H = 480;
 let viewDpr = 1;
 
+/** 导出 PNG、图库终点帧与视频的像素倍率（相对逻辑 640×480，越大越清晰） */
+const EXPORT_MEDIA_PIXEL_SCALE = 3;
+/** 导出视频目标视频码率 */
+const EXPORT_VIDEO_TARGET_BPS = 28_000_000;
+
 /** 图形初始排布：center | random（随机按钮每次只重排位置） */
 let shapePlacementMode = "center";
 
@@ -228,7 +233,7 @@ const I18N = {
     "label.bgVideo": "背景视频",
     "bg.more": "更多（背景色、图与视频）",
     "btn.png": "下载图片",
-    "btn.webm": "下载视频(WebM)",
+    "btn.mp4": "下载视频(MP4)",
     "btn.randomMixAgain": "换一组混合",
     "status.clickStart": "请点击「开始新游戏」",
     "status.started": "开始！每次方向键会作用于全部图形",
@@ -345,7 +350,7 @@ const I18N = {
     "label.bgVideo": "Background video",
     "bg.more": "More (color, image & video)",
     "btn.png": "Download PNG",
-    "btn.webm": "Download WebM",
+    "btn.mp4": "Download MP4",
     "btn.randomMixAgain": "Shuffle random mix",
     "status.clickStart": "Click “New game” to start",
     "status.started": "Go! Each arrow affects every shape",
@@ -731,7 +736,7 @@ function updateReplayTransportUi() {
 
 /**
  * 将某一回放索引画到 targetCtx。targetCtx 当前变换须为 (viewDpr * pixelScale) 的均匀缩放。
- * pixelScale=1 与屏幕预览一致；导出视频时用 2 提高像素密度。
+ * pixelScale=1 与屏幕预览一致；高分辨率导出时可至 4。
  */
 function renderReplayFrameOntoContext(targetCtx, pixelScale, displayIndex, opts = { playSound: false }) {
   const n = game.records.length;
@@ -739,7 +744,7 @@ function renderReplayFrameOntoContext(targetCtx, pixelScale, displayIndex, opts 
   const i = ((displayIndex % n) + n) % n;
   const rec = game.records[i];
   if (opts.playSound && rec.direction && !ui.playbackMute.checked) playDirectionSound(rec.direction);
-  const ps = Math.max(1, Math.min(3, pixelScale));
+  const ps = Math.max(1, Math.min(4, pixelScale));
   drawBackgroundToCtx(targetCtx);
   const replayLayer = document.createElement("canvas");
   replayLayer.width = Math.round(VIEW_LOGICAL_W * viewDpr * ps);
@@ -763,6 +768,24 @@ function renderReplayFrameOntoContext(targetCtx, pixelScale, displayIndex, opts 
   targetCtx.globalCompositeOperation = "source-over";
   targetCtx.drawImage(replayLayer, 0, 0, VIEW_LOGICAL_W, VIEW_LOGICAL_H);
   drawMazeOverlayText(targetCtx, ui.mazeTextInput ? ui.mazeTextInput.value : "", textFxFromRecord(rec));
+}
+
+/** 与记录回放同管线渲染最后一帧，高分辨率无损 PNG（下载用；图库用屏幕 canvas 以与所见一致） */
+function captureFinishLinePngDataUrl() {
+  const n = game.records.length;
+  if (!n) return null;
+  const sc = EXPORT_MEDIA_PIXEL_SCALE;
+  const exportCanvas = document.createElement("canvas");
+  const pw = Math.round(VIEW_LOGICAL_W * viewDpr * sc);
+  const ph = Math.round(VIEW_LOGICAL_H * viewDpr * sc);
+  exportCanvas.width = pw;
+  exportCanvas.height = ph;
+  const exCtx = exportCanvas.getContext("2d");
+  exCtx.setTransform(viewDpr * sc, 0, 0, viewDpr * sc, 0, 0);
+  exCtx.imageSmoothingEnabled = true;
+  exCtx.imageSmoothingQuality = "high";
+  renderReplayFrameOntoContext(exCtx, sc, n - 1, { playSound: false });
+  return exportCanvas.toDataURL("image/png");
 }
 
 function renderOneReplayFrame(displayIndex, opts = { playSound: false }) {
@@ -1352,13 +1375,22 @@ function normalizeOverlayText(text) {
     .join(" ");
 }
 
+/** 将文字绘制角度折到 [-π/2, π/2]，避免接近 ±π 时整句上下颠倒（canvas rotate + textBaseline 组合） */
+function normalizeMazeTextDrawRotation(rad) {
+  let r = rad || 0;
+  r = ((r + Math.PI * 8) % (Math.PI * 2)) - Math.PI;
+  if (r > Math.PI / 2) r -= Math.PI;
+  if (r < -Math.PI / 2) r += Math.PI;
+  return r;
+}
+
 function clampMazeTextFx() {
   const { maxOx, maxOy } = getMazeTextOffsetBounds();
   mazeTextFx.offsetX = Math.max(-maxOx, Math.min(maxOx, mazeTextFx.offsetX));
   mazeTextFx.offsetY = Math.max(-maxOy, Math.min(maxOy, mazeTextFx.offsetY));
   mazeTextFx.scaleX = Math.max(0.22, Math.min(2.6, mazeTextFx.scaleX));
   mazeTextFx.scaleY = Math.max(0.22, Math.min(2.6, mazeTextFx.scaleY));
-  mazeTextFx.rotation = ((mazeTextFx.rotation + Math.PI * 8) % (Math.PI * 2)) - Math.PI;
+  mazeTextFx.rotation = normalizeMazeTextDrawRotation(mazeTextFx.rotation);
   mazeTextFx.fontBoost = Math.max(0, Math.min(40, mazeTextFx.fontBoost));
   mazeTextFx.alpha = Math.max(0.12, Math.min(1, mazeTextFx.alpha));
 }
@@ -1466,7 +1498,7 @@ function drawMazeOverlayText(ctx, text, fxSource) {
   cy = Math.min(inner.y + inner.h - hh - 1, Math.max(inner.y + hh + 1, cy));
 
   ctx.translate(cx, cy);
-  ctx.rotate(fx.rotation || 0);
+  ctx.rotate(normalizeMazeTextDrawRotation(fx.rotation));
   ctx.scale(sx, sy);
   ctx.globalAlpha = fx.alpha != null ? fx.alpha : 1;
   ctx.filter = `hue-rotate(${fx.hueShift || 0}deg)`;
@@ -1810,7 +1842,8 @@ async function saveFinishSnapshotToGallery(dataUrl, stepCount) {
 function queueSaveFinishGallerySnapshot(stepCount) {
   requestAnimationFrame(() => {
     try {
-      const dataUrl = visualCanvas.toDataURL("image/jpeg", 0.82);
+      /* 与屏幕上最后一帧一致，无损 PNG（不再用 JPEG 以免色偏与压缩） */
+      const dataUrl = visualCanvas.toDataURL("image/png");
       saveFinishSnapshotToGallery(dataUrl, stepCount).catch(() => {});
     } catch (_e) {}
   });
@@ -2052,11 +2085,26 @@ function startGame() {
 }
 
 function downloadPng() {
-  const url = visualCanvas.toDataURL("image/png");
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `maze-visual-${Date.now()}.png`;
-  a.click();
+  try {
+    if (game.records.length > 0) {
+      const dataUrl = captureFinishLinePngDataUrl();
+      if (dataUrl) {
+        downloadDataUrlAsFile(dataUrl, `maze-visual-${Date.now()}.png`);
+        return;
+      }
+    }
+  } catch (_e) {
+    /* fall through */
+  }
+  const scale = 2;
+  const c = document.createElement("canvas");
+  c.width = Math.round(visualCanvas.width * scale);
+  c.height = Math.round(visualCanvas.height * scale);
+  const ctx = c.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(visualCanvas, 0, 0, c.width, c.height);
+  downloadDataUrlAsFile(c.toDataURL("image/png"), `maze-visual-${Date.now()}.png`);
 }
 
 function restorePreviewCanvasAfterVideoExport() {
@@ -2075,25 +2123,53 @@ function setVideoExportOverlayVisible(visible) {
   el.setAttribute("aria-busy", visible ? "true" : "false");
 }
 
+function pickExportRecorderCandidate(wantAudioTrack) {
+  const bps = EXPORT_VIDEO_TARGET_BPS;
+  const bpsMid = Math.min(bps, 14_000_000);
+  const list = [];
+  if (wantAudioTrack) {
+    list.push({ mime: "video/mp4;codecs=avc1.42E01E,mp4a.40.2", bps, fileExt: "mp4" });
+    list.push({ mime: "video/mp4;codecs=avc1.4D002A,mp4a.40.2", bps, fileExt: "mp4" });
+    list.push({ mime: "video/mp4;codecs=h264,aac", bps, fileExt: "mp4" });
+    list.push({ mime: "video/mp4", bps, fileExt: "mp4" });
+    list.push({ mime: "video/webm;codecs=vp9,opus", bps, fileExt: "webm" });
+    list.push({ mime: "video/webm;codecs=vp8,opus", bps: bpsMid, fileExt: "webm" });
+    list.push({ mime: "video/webm;codecs=vp9", bps, fileExt: "webm" });
+    list.push({ mime: "video/webm;codecs=vp8", bps: bpsMid, fileExt: "webm" });
+  } else {
+    list.push({ mime: "video/mp4;codecs=avc1.42E01E", bps, fileExt: "mp4" });
+    list.push({ mime: "video/mp4;codecs=avc1.4D002A", bps, fileExt: "mp4" });
+    list.push({ mime: "video/mp4", bps, fileExt: "mp4" });
+    list.push({ mime: "video/webm;codecs=vp9", bps, fileExt: "webm" });
+    list.push({ mime: "video/webm;codecs=vp8", bps: bpsMid, fileExt: "webm" });
+  }
+  list.push({ mime: "video/webm", bps: 8_000_000, fileExt: "webm" });
+  for (let i = 0; i < list.length; i += 1) {
+    const c = list[i];
+    if (MediaRecorder.isTypeSupported(c.mime)) return c;
+  }
+  return null;
+}
+
 async function downloadVideo() {
   if (game.records.length === 0) return;
   setVideoExportOverlayVisible(true);
   ui.mazeStatus.textContent = t("status.videoExporting");
 
-  const EXPORT_PIXEL_SCALE = 2;
-  const TARGET_BPS = 16_000_000;
   const frameDelay = replayIntervalMs();
+  const frameDelaySec = frameDelay / 1000;
   const streamFps = Math.min(60, Math.max(4, Math.round(1000 / Math.max(8, frameDelay))));
 
   try {
     const n = game.records.length;
+    const sc = EXPORT_MEDIA_PIXEL_SCALE;
     const exportCanvas = document.createElement("canvas");
-    const pw = Math.round(VIEW_LOGICAL_W * viewDpr * EXPORT_PIXEL_SCALE);
-    const ph = Math.round(VIEW_LOGICAL_H * viewDpr * EXPORT_PIXEL_SCALE);
+    const pw = Math.round(VIEW_LOGICAL_W * viewDpr * sc);
+    const ph = Math.round(VIEW_LOGICAL_H * viewDpr * sc);
     exportCanvas.width = pw;
     exportCanvas.height = ph;
     const exCtx = exportCanvas.getContext("2d");
-    exCtx.setTransform(viewDpr * EXPORT_PIXEL_SCALE, 0, 0, viewDpr * EXPORT_PIXEL_SCALE, 0, 0);
+    exCtx.setTransform(viewDpr * sc, 0, 0, viewDpr * sc, 0, 0);
     exCtx.imageSmoothingEnabled = true;
     exCtx.imageSmoothingQuality = "high";
 
@@ -2110,26 +2186,11 @@ async function downloadVideo() {
     }
 
     const wantsVideoAudio = combinedStream.getAudioTracks().length > 0;
-    const mimeCandidates = [];
-    if (wantsVideoAudio) {
-      mimeCandidates.push({ mime: "video/webm;codecs=vp9,opus", bps: TARGET_BPS });
-      mimeCandidates.push({ mime: "video/webm;codecs=vp8,opus", bps: Math.min(TARGET_BPS, 9_000_000) });
-    }
-    mimeCandidates.push({ mime: "video/webm;codecs=vp9", bps: TARGET_BPS });
-    mimeCandidates.push({ mime: "video/webm;codecs=vp8", bps: Math.min(TARGET_BPS, 9_000_000) });
-    mimeCandidates.push({ mime: "video/webm", bps: 6_000_000 });
-
-    let picked = null;
-    for (let c = 0; c < mimeCandidates.length; c += 1) {
-      if (MediaRecorder.isTypeSupported(mimeCandidates[c].mime)) {
-        picked = mimeCandidates[c];
-        break;
-      }
-    }
-    if (!picked) throw new Error("no webm");
+    const picked = pickExportRecorderCandidate(Boolean(wantsVideoAudio));
+    if (!picked) throw new Error("no recorder mime");
 
     const recOpts = { mimeType: picked.mime, videoBitsPerSecond: picked.bps };
-    if (wantsVideoAudio) recOpts.audioBitsPerSecond = 128000;
+    if (wantsVideoAudio) recOpts.audioBitsPerSecond = 192000;
 
     let recorder;
     try {
@@ -2155,12 +2216,15 @@ async function downloadVideo() {
     const videoTrack = videoStream.getVideoTracks()[0];
 
     recorder.start(400);
+    const audioT0 = includeAudio && audioCtx && dest ? audioCtx.currentTime + 0.08 : 0;
+    if (includeAudio && audioCtx && dest) {
+      for (let i = 0; i < n; i += 1) {
+        connectDirectionSound(audioCtx, dest, game.records[i].direction, audioT0 + i * frameDelaySec);
+      }
+    }
     try {
       for (let frame = 0; frame < n; frame += 1) {
-        if (includeAudio && audioCtx && dest) {
-          connectDirectionSound(audioCtx, dest, game.records[frame].direction, audioCtx.currentTime + 0.02);
-        }
-        renderReplayFrameOntoContext(exCtx, EXPORT_PIXEL_SCALE, frame, { playSound: false });
+        renderReplayFrameOntoContext(exCtx, sc, frame, { playSound: false });
         if (videoTrack && typeof videoTrack.requestFrame === "function") {
           try {
             videoTrack.requestFrame();
@@ -2170,7 +2234,7 @@ async function downloadVideo() {
         }
         await new Promise((r) => setTimeout(r, frameDelay));
       }
-      await new Promise((r) => setTimeout(r, includeAudio && dest ? 400 : 80));
+      await new Promise((r) => setTimeout(r, includeAudio && dest ? 480 : 80));
     } finally {
       if (recorder && recorder.state === "recording") {
         try {
@@ -2183,11 +2247,13 @@ async function downloadVideo() {
 
     await encodingDone;
 
-    const blob = new Blob(chunks, { type: recorder.mimeType || "video/webm" });
+    const outMime = recorder.mimeType || picked.mime;
+    const blob = new Blob(chunks, { type: outMime });
     const url = URL.createObjectURL(blob);
+    const ext = outMime.includes("mp4") || picked.mime.includes("mp4") ? "mp4" : picked.fileExt;
     const a = document.createElement("a");
     a.href = url;
-    a.download = `maze-visual-${Date.now()}.webm`;
+    a.download = `maze-visual-${Date.now()}.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
     ui.mazeStatus.textContent = t("status.videoDone");
