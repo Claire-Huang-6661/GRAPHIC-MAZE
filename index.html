@@ -224,8 +224,16 @@
             aria-live="polite"
             aria-busy="false"
           >
-            <div class="video-export-overlay__spinner" aria-hidden="true"></div>
-            <p class="video-export-overlay__label" data-i18n="status.videoExporting">正在导出视频…</p>
+            <div id="videoExportOverlayBusy" class="video-export-overlay__block">
+              <div class="video-export-overlay__spinner" aria-hidden="true"></div>
+              <p id="videoExportOverlayLabel" class="video-export-overlay__label" data-i18n="status.videoExporting">
+                正在导出视频…
+              </p>
+            </div>
+            <div id="videoExportOverlayDone" class="video-export-overlay__block video-export-overlay__done" hidden>
+              <p id="videoExportOverlayDoneLabel" class="video-export-overlay__label"></p>
+              <a id="videoExportManualDownload" class="video-export-overlay__link" href="#" download hidden></a>
+            </div>
           </div>
         </div>
 
@@ -237,7 +245,8 @@
                 <input id="playbackMute" type="checkbox" />
               </label>
               <button id="downloadPngBtn" data-i18n="btn.png">下载图片</button>
-              <button id="downloadVideoBtn" data-i18n="btn.mp4">下载视频(MP4)</button>
+              <button id="downloadVideoMp4Btn" type="button" data-i18n="btn.videoMp4">下载视频（MP4）</button>
+              <button id="downloadVideoWebmBtn" type="button" data-i18n="btn.videoWebm">下载视频（WEBM）</button>
             </div>
           </div>
 

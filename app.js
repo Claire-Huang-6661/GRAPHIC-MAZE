@@ -50,7 +50,13 @@ const ui = {
   mazeStatus: document.getElementById("mazeStatus"),
   startBtn: document.getElementById("startBtn"),
   downloadPngBtn: document.getElementById("downloadPngBtn"),
-  downloadVideoBtn: document.getElementById("downloadVideoBtn"),
+  downloadVideoMp4Btn: document.getElementById("downloadVideoMp4Btn"),
+  downloadVideoWebmBtn: document.getElementById("downloadVideoWebmBtn"),
+  videoExportOverlayBusy: document.getElementById("videoExportOverlayBusy"),
+  videoExportOverlayDone: document.getElementById("videoExportOverlayDone"),
+  videoExportOverlayLabel: document.getElementById("videoExportOverlayLabel"),
+  videoExportOverlayDoneLabel: document.getElementById("videoExportOverlayDoneLabel"),
+  videoExportManualDownload: document.getElementById("videoExportManualDownload"),
   ruleUp: document.getElementById("ruleUp"),
   ruleDown: document.getElementById("ruleDown"),
   ruleLeft: document.getElementById("ruleLeft"),
@@ -235,8 +241,14 @@ const I18N = {
     "label.bgVideo": "背景视频",
     "bg.more": "更多（背景色、图与视频）",
     "btn.png": "下载图片",
-    "btn.mp4": "下载视频(MP4)",
+    "btn.videoMp4": "下载视频（MP4）",
+    "btn.videoWebm": "下载视频（WEBM）",
     "btn.randomMixAgain": "换一组混合",
+    "status.videoExportRetryWebm": "MP4 未生成有效文件，正在改用 WebM…",
+    "status.videoExportUsedWebmDone": "已改用 WebM 并成功导出。",
+    "status.videoExportDoneTapSave": "若未见下载，请点击下方按钮保存（Safari 等浏览器常见）。",
+    "status.videoExportNoMime": "不支持该编码格式。请试另一种视频按钮，或勾选「回放静音」后重试。",
+    "videoExport.saveLink": "点击保存视频",
     "status.clickStart": "请点击「开始新游戏」",
     "status.started": "开始！每次方向键会作用于全部图形",
     "status.playing": "进行中：{n} 步",
@@ -354,8 +366,14 @@ const I18N = {
     "label.bgVideo": "Background video",
     "bg.more": "More (color, image & video)",
     "btn.png": "Download PNG",
-    "btn.mp4": "Download MP4",
+    "btn.videoMp4": "Download video (MP4)",
+    "btn.videoWebm": "Download video (WEBM)",
     "btn.randomMixAgain": "Shuffle random mix",
+    "status.videoExportRetryWebm": "MP4 produced no data; trying WebM…",
+    "status.videoExportUsedWebmDone": "Exported as WebM instead.",
+    "status.videoExportDoneTapSave": "If no download started, tap the button below (common in Safari).",
+    "status.videoExportNoMime": "That format is not supported here. Try the other video button, or mute replay and retry.",
+    "videoExport.saveLink": "Save video file",
     "status.clickStart": "Click “New game” to start",
     "status.started": "Go! Each arrow affects every shape",
     "status.playing": "Playing: {n} steps",
@@ -460,14 +478,15 @@ function applyLanguage() {
   document.querySelectorAll("[data-i18n]").forEach((el) => {
     const key = el.getAttribute("data-i18n");
     if (!key) return;
-    const val = t(key);
-    if (el.tagName === "BUTTON") el.textContent = val;
-    else el.textContent = val;
+    // 词条未随 JS 更新时（例如 CDN 缓存了旧 app.js），不要用 raw key 覆盖 HTML 里的默认文案
+    if (!Object.prototype.hasOwnProperty.call(I18N.zh, key)) return;
+    el.textContent = t(key);
   });
   if (ui.mazeTextInput) ui.mazeTextInput.placeholder = t("mazeText.placeholder");
   document.querySelectorAll("[data-i18n-aria]").forEach((el) => {
     const key = el.getAttribute("data-i18n-aria");
     if (!key) return;
+    if (!Object.prototype.hasOwnProperty.call(I18N.zh, key)) return;
     const val = t(key);
     el.setAttribute("aria-label", val);
     el.setAttribute("title", val);
@@ -1554,16 +1573,34 @@ function drawBackground() {
   drawBackgroundToCtx(visualCtx);
 }
 
+/** 轴对齐圆角矩形路径；无 roundRect 时用 arcTo（旧版 Safari 等） */
+function addAxisAlignedRoundRect(ctx, x, y, w, h, radius) {
+  const r = Math.min(radius, Math.abs(w) / 2, Math.abs(h) / 2);
+  if (r <= 0) {
+    ctx.rect(x, y, w, h);
+    return;
+  }
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, w, h, r);
+    return;
+  }
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
 function renderPath(ctx, shape, size, cornerR = 0) {
   const s = size;
   const r = Math.max(0, cornerR);
-  const canRound = typeof ctx.roundRect === "function";
   ctx.beginPath();
   if (shape === "circle") ctx.arc(0, 0, s, 0, Math.PI * 2);
   else if (shape === "square") {
-    if (r > 0 && canRound) {
+    if (r > 0) {
       const rr = Math.min(r, s * 0.95);
-      ctx.roundRect(-s, -s, s * 2, s * 2, rr);
+      addAxisAlignedRoundRect(ctx, -s, -s, s * 2, s * 2, rr);
     } else {
       ctx.rect(-s, -s, s * 2, s * 2);
     }
@@ -1573,12 +1610,12 @@ function renderPath(ctx, shape, size, cornerR = 0) {
     ctx.lineTo(-s, s);
     ctx.closePath();
   } else if (shape === "diamond") {
-    if (r > 0 && canRound) {
+    if (r > 0) {
       const half = s / Math.SQRT2;
       const rr = Math.min(r, half * 0.92);
       ctx.save();
       ctx.rotate(Math.PI / 4);
-      ctx.roundRect(-half, -half, half * 2, half * 2, rr);
+      addAxisAlignedRoundRect(ctx, -half, -half, half * 2, half * 2, rr);
       ctx.restore();
     } else {
       ctx.moveTo(0, -s);
@@ -2155,34 +2192,134 @@ function restorePreviewCanvasAfterVideoExport() {
   }
 }
 
-function setVideoExportOverlayVisible(visible) {
-  const el = ui.videoExportOverlay;
-  if (!el) return;
-  el.hidden = !visible;
-  el.setAttribute("aria-busy", visible ? "true" : "false");
+/** Mac / iOS Safari：程序化 <a download> 常在异步导出后失效，需二次点击链接触发保存 */
+function videoExportNeedsManualSaveLink() {
+  const ua = navigator.userAgent || "";
+  const platform = navigator.platform || "";
+  const webKitNoChrome =
+    /WebKit/i.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Electron/i.test(ua);
+  const macSafari = webKitNoChrome && /Mac/i.test(ua);
+  const ios = /iP(hone|ad|od)/i.test(platform) || /iP(hone|ad|od)/i.test(ua);
+  return macSafari || ios;
 }
 
-function pickExportRecorderCandidate(wantAudioTrack) {
+function openVideoExportOverlayBusy() {
+  clearTimeout(window.__videoExportOverlayAutoCloseTimer);
+  if (window.__videoExportManualUrl) {
+    try {
+      URL.revokeObjectURL(window.__videoExportManualUrl);
+    } catch (_e) {
+      /* ignore */
+    }
+    window.__videoExportManualUrl = null;
+  }
+  const el = ui.videoExportOverlay;
+  if (!el) return;
+  el.hidden = false;
+  el.setAttribute("aria-busy", "true");
+  if (ui.videoExportOverlayBusy) ui.videoExportOverlayBusy.hidden = false;
+  if (ui.videoExportOverlayDone) ui.videoExportOverlayDone.hidden = true;
+  if (ui.videoExportManualDownload) {
+    ui.videoExportManualDownload.hidden = true;
+    ui.videoExportManualDownload.onclick = null;
+    ui.videoExportManualDownload.removeAttribute("href");
+    ui.videoExportManualDownload.textContent = "";
+  }
+  if (ui.videoExportOverlayLabel) ui.videoExportOverlayLabel.textContent = t("status.videoExporting");
+}
+
+function closeVideoExportOverlay() {
+  clearTimeout(window.__videoExportOverlayAutoCloseTimer);
+  if (window.__videoExportManualUrl) {
+    try {
+      URL.revokeObjectURL(window.__videoExportManualUrl);
+    } catch (_e) {
+      /* ignore */
+    }
+    window.__videoExportManualUrl = null;
+  }
+  const el = ui.videoExportOverlay;
+  if (el) {
+    el.hidden = true;
+    el.setAttribute("aria-busy", "false");
+  }
+  if (ui.videoExportOverlayBusy) ui.videoExportOverlayBusy.hidden = false;
+  if (ui.videoExportOverlayDone) ui.videoExportOverlayDone.hidden = true;
+  if (ui.videoExportManualDownload) {
+    ui.videoExportManualDownload.hidden = true;
+    ui.videoExportManualDownload.onclick = null;
+    ui.videoExportManualDownload.removeAttribute("href");
+    ui.videoExportManualDownload.textContent = "";
+  }
+}
+
+function showVideoExportManualDownloadUI(blob, filename, usedWebmFallback) {
+  if (!ui.videoExportOverlay || !ui.videoExportManualDownload || !ui.videoExportOverlayDoneLabel) {
+    closeVideoExportOverlay();
+    return;
+  }
+  if (window.__videoExportManualUrl) {
+    try {
+      URL.revokeObjectURL(window.__videoExportManualUrl);
+    } catch (_e) {
+      /* ignore */
+    }
+  }
+  window.__videoExportManualUrl = URL.createObjectURL(blob);
+  const a = ui.videoExportManualDownload;
+  a.href = window.__videoExportManualUrl;
+  a.download = filename;
+  a.textContent = t("videoExport.saveLink");
+  a.hidden = false;
+  a.onclick = () => {
+    setTimeout(() => closeVideoExportOverlay(), 800);
+  };
+  let msg = t("status.videoExportDoneTapSave");
+  if (usedWebmFallback) msg = `${t("status.videoExportUsedWebmDone")} ${msg}`;
+  ui.videoExportOverlayDoneLabel.textContent = msg;
+  ui.videoExportOverlayBusy.hidden = true;
+  ui.videoExportOverlayDone.hidden = false;
+  ui.videoExportOverlay.setAttribute("aria-busy", "false");
+  clearTimeout(window.__videoExportOverlayAutoCloseTimer);
+  window.__videoExportOverlayAutoCloseTimer = setTimeout(() => {
+    closeVideoExportOverlay();
+  }, 120000);
+}
+
+function pickExportRecorderCandidate(wantAudioTrack, container) {
   const bps = EXPORT_VIDEO_TARGET_BPS;
   const bpsMid = Math.min(bps, 14_000_000);
-  const list = [];
-  if (wantAudioTrack) {
-    list.push({ mime: "video/mp4;codecs=avc1.42E01E,mp4a.40.2", bps, fileExt: "mp4" });
-    list.push({ mime: "video/mp4;codecs=avc1.4D002A,mp4a.40.2", bps, fileExt: "mp4" });
-    list.push({ mime: "video/mp4;codecs=h264,aac", bps, fileExt: "mp4" });
-    list.push({ mime: "video/mp4", bps, fileExt: "mp4" });
-    list.push({ mime: "video/webm;codecs=vp9,opus", bps, fileExt: "webm" });
-    list.push({ mime: "video/webm;codecs=vp8,opus", bps: bpsMid, fileExt: "webm" });
-    list.push({ mime: "video/webm;codecs=vp9", bps, fileExt: "webm" });
-    list.push({ mime: "video/webm;codecs=vp8", bps: bpsMid, fileExt: "webm" });
-  } else {
-    list.push({ mime: "video/mp4;codecs=avc1.42E01E", bps, fileExt: "mp4" });
-    list.push({ mime: "video/mp4;codecs=avc1.4D002A", bps, fileExt: "mp4" });
-    list.push({ mime: "video/mp4", bps, fileExt: "mp4" });
-    list.push({ mime: "video/webm;codecs=vp9", bps, fileExt: "webm" });
-    list.push({ mime: "video/webm;codecs=vp8", bps: bpsMid, fileExt: "webm" });
-  }
-  list.push({ mime: "video/webm", bps: 8_000_000, fileExt: "webm" });
+  const mp4Audio = [
+    { mime: "video/mp4;codecs=avc1.42E01E,mp4a.40.2", bps, fileExt: "mp4" },
+    { mime: "video/mp4;codecs=avc1.4D002A,mp4a.40.2", bps, fileExt: "mp4" },
+    { mime: "video/mp4;codecs=h264,aac", bps, fileExt: "mp4" },
+    { mime: "video/mp4", bps, fileExt: "mp4" },
+  ];
+  const webmAudio = [
+    { mime: "video/webm;codecs=vp9,opus", bps, fileExt: "webm" },
+    { mime: "video/webm;codecs=vp8,opus", bps: bpsMid, fileExt: "webm" },
+    { mime: "video/webm;codecs=vp9", bps, fileExt: "webm" },
+    { mime: "video/webm;codecs=vp8", bps: bpsMid, fileExt: "webm" },
+    { mime: "video/webm", bps: 8_000_000, fileExt: "webm" },
+  ];
+  const mp4Video = [
+    { mime: "video/mp4;codecs=avc1.42E01E", bps, fileExt: "mp4" },
+    { mime: "video/mp4;codecs=avc1.4D002A", bps, fileExt: "mp4" },
+    { mime: "video/mp4", bps, fileExt: "mp4" },
+  ];
+  const webmVideo = [
+    { mime: "video/webm;codecs=vp9", bps, fileExt: "webm" },
+    { mime: "video/webm;codecs=vp8", bps: bpsMid, fileExt: "webm" },
+    { mime: "video/webm", bps: 8_000_000, fileExt: "webm" },
+  ];
+  const list =
+    container === "mp4"
+      ? wantAudioTrack
+        ? mp4Audio
+        : mp4Video
+      : wantAudioTrack
+        ? webmAudio
+        : webmVideo;
   for (let i = 0; i < list.length; i += 1) {
     const c = list[i];
     if (MediaRecorder.isTypeSupported(c.mime)) return c;
@@ -2190,8 +2327,108 @@ function pickExportRecorderCandidate(wantAudioTrack) {
   return null;
 }
 
-async function downloadVideo() {
+async function exportReplayVideoBlob(container) {
+  const n = game.records.length;
+  const frameDelay = replayIntervalMs();
+  const frameDelaySec = frameDelay / 1000;
+  const streamFps = Math.min(60, Math.max(4, Math.round(1000 / Math.max(8, frameDelay))));
+  const sc = EXPORT_MEDIA_PIXEL_SCALE;
+  const exportCanvas = document.createElement("canvas");
+  const pw = Math.round(VIEW_LOGICAL_W * viewDpr * sc);
+  const ph = Math.round(VIEW_LOGICAL_H * viewDpr * sc);
+  exportCanvas.width = pw;
+  exportCanvas.height = ph;
+  const exCtx = exportCanvas.getContext("2d");
+  exCtx.setTransform(viewDpr * sc, 0, 0, viewDpr * sc, 0, 0);
+  exCtx.imageSmoothingEnabled = true;
+  exCtx.imageSmoothingQuality = "high";
+
+  const includeAudio = !ui.playbackMute.checked;
+  resumeAudioContext();
+
+  const videoStream = exportCanvas.captureStream(streamFps);
+  let dest = null;
+  let combinedStream = videoStream;
+  if (includeAudio && audioCtx) {
+    dest = audioCtx.createMediaStreamDestination();
+    const at = dest.stream.getAudioTracks()[0];
+    if (at) combinedStream = new MediaStream([...videoStream.getVideoTracks(), at]);
+  }
+
+  const wantsVideoAudio = combinedStream.getAudioTracks().length > 0;
+  const picked = pickExportRecorderCandidate(Boolean(wantsVideoAudio), container);
+  if (!picked) throw new Error("no recorder mime");
+
+  const recOpts = { mimeType: picked.mime, videoBitsPerSecond: picked.bps };
+  if (wantsVideoAudio) recOpts.audioBitsPerSecond = 192000;
+
+  let recorder;
+  try {
+    recorder = new MediaRecorder(combinedStream, recOpts);
+  } catch (_e1) {
+    try {
+      recorder = new MediaRecorder(combinedStream, { mimeType: picked.mime });
+    } catch (_e2) {
+      recorder = new MediaRecorder(combinedStream);
+    }
+  }
+
+  const chunks = [];
+  recorder.ondataavailable = (e) => {
+    if (e.data.size > 0) chunks.push(e.data);
+  };
+
+  const encodingDone = new Promise((resolve, reject) => {
+    recorder.onstop = () => resolve();
+    recorder.onerror = () => reject(new Error("recorder"));
+  });
+
+  const videoTrack = videoStream.getVideoTracks()[0];
+
+  const timesliceMs =
+    videoExportNeedsManualSaveLink() && picked.mime.includes("mp4") ? 1000 : 400;
+  recorder.start(timesliceMs);
+
+  const audioT0 = includeAudio && audioCtx && dest ? audioCtx.currentTime + 0.08 : 0;
+  if (includeAudio && audioCtx && dest) {
+    for (let i = 0; i < n; i += 1) {
+      connectDirectionSound(audioCtx, dest, game.records[i].direction, audioT0 + i * frameDelaySec);
+    }
+  }
+  try {
+    for (let frame = 0; frame < n; frame += 1) {
+      renderReplayFrameOntoContext(exCtx, sc, frame, { playSound: false });
+      if (videoTrack && typeof videoTrack.requestFrame === "function") {
+        try {
+          videoTrack.requestFrame();
+        } catch (_rf) {
+          /* ignore */
+        }
+      }
+      await new Promise((r) => setTimeout(r, frameDelay));
+    }
+    await new Promise((r) => setTimeout(r, includeAudio && dest ? 480 : 80));
+  } finally {
+    if (recorder && recorder.state === "recording") {
+      try {
+        recorder.stop();
+      } catch (_s) {
+        /* ignore */
+      }
+    }
+  }
+
+  await encodingDone;
+
+  const outMime = recorder.mimeType || picked.mime;
+  const blob = new Blob(chunks, { type: outMime });
+  const ext = outMime.includes("mp4") || picked.mime.includes("mp4") ? "mp4" : picked.fileExt;
+  return { blob, ext };
+}
+
+async function downloadVideo(container) {
   if (game.records.length === 0) return;
+  if (container !== "mp4" && container !== "webm") return;
   if (!window.isSecureContext) {
     ui.mazeStatus.textContent = t("status.videoExportNeedsHttps");
     return;
@@ -2200,111 +2437,32 @@ async function downloadVideo() {
     ui.mazeStatus.textContent = t("status.videoExportFail");
     return;
   }
-  setVideoExportOverlayVisible(true);
+  openVideoExportOverlayBusy();
   ui.mazeStatus.textContent = t("status.videoExporting");
 
-  const frameDelay = replayIntervalMs();
-  const frameDelaySec = frameDelay / 1000;
-  const streamFps = Math.min(60, Math.max(4, Math.round(1000 / Math.max(8, frameDelay))));
-
   try {
-    const n = game.records.length;
-    const sc = EXPORT_MEDIA_PIXEL_SCALE;
-    const exportCanvas = document.createElement("canvas");
-    const pw = Math.round(VIEW_LOGICAL_W * viewDpr * sc);
-    const ph = Math.round(VIEW_LOGICAL_H * viewDpr * sc);
-    exportCanvas.width = pw;
-    exportCanvas.height = ph;
-    const exCtx = exportCanvas.getContext("2d");
-    exCtx.setTransform(viewDpr * sc, 0, 0, viewDpr * sc, 0, 0);
-    exCtx.imageSmoothingEnabled = true;
-    exCtx.imageSmoothingQuality = "high";
-
-    const includeAudio = !ui.playbackMute.checked;
-    resumeAudioContext();
-
-    const videoStream = exportCanvas.captureStream(streamFps);
-    let dest = null;
-    let combinedStream = videoStream;
-    if (includeAudio && audioCtx) {
-      dest = audioCtx.createMediaStreamDestination();
-      const at = dest.stream.getAudioTracks()[0];
-      if (at) combinedStream = new MediaStream([...videoStream.getVideoTracks(), at]);
+    let usedWebmFallback = false;
+    let { blob, ext } = await exportReplayVideoBlob(container);
+    if (!blob.size && container === "mp4") {
+      ui.mazeStatus.textContent = t("status.videoExportRetryWebm");
+      ({ blob, ext } = await exportReplayVideoBlob("webm"));
+      usedWebmFallback = true;
     }
-
-    const wantsVideoAudio = combinedStream.getAudioTracks().length > 0;
-    const picked = pickExportRecorderCandidate(Boolean(wantsVideoAudio));
-    if (!picked) throw new Error("no recorder mime");
-
-    const recOpts = { mimeType: picked.mime, videoBitsPerSecond: picked.bps };
-    if (wantsVideoAudio) recOpts.audioBitsPerSecond = 192000;
-
-    let recorder;
-    try {
-      recorder = new MediaRecorder(combinedStream, recOpts);
-    } catch (_e1) {
-      try {
-        recorder = new MediaRecorder(combinedStream, { mimeType: picked.mime });
-      } catch (_e2) {
-        recorder = new MediaRecorder(combinedStream);
-      }
-    }
-
-    const chunks = [];
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
-
-    const encodingDone = new Promise((resolve, reject) => {
-      recorder.onstop = () => resolve();
-      recorder.onerror = () => reject(new Error("recorder"));
-    });
-
-    const videoTrack = videoStream.getVideoTracks()[0];
-
-    recorder.start(400);
-    const audioT0 = includeAudio && audioCtx && dest ? audioCtx.currentTime + 0.08 : 0;
-    if (includeAudio && audioCtx && dest) {
-      for (let i = 0; i < n; i += 1) {
-        connectDirectionSound(audioCtx, dest, game.records[i].direction, audioT0 + i * frameDelaySec);
-      }
-    }
-    try {
-      for (let frame = 0; frame < n; frame += 1) {
-        renderReplayFrameOntoContext(exCtx, sc, frame, { playSound: false });
-        if (videoTrack && typeof videoTrack.requestFrame === "function") {
-          try {
-            videoTrack.requestFrame();
-          } catch (_rf) {
-            /* ignore */
-          }
-        }
-        await new Promise((r) => setTimeout(r, frameDelay));
-      }
-      await new Promise((r) => setTimeout(r, includeAudio && dest ? 480 : 80));
-    } finally {
-      if (recorder && recorder.state === "recording") {
-        try {
-          recorder.stop();
-        } catch (_s) {
-          /* ignore */
-        }
-      }
-    }
-
-    await encodingDone;
-
-    const outMime = recorder.mimeType || picked.mime;
-    const blob = new Blob(chunks, { type: outMime });
     if (!blob.size) throw new Error("empty export blob");
-    const ext = outMime.includes("mp4") || picked.mime.includes("mp4") ? "mp4" : picked.fileExt;
-    triggerBlobDownload(blob, `maze-visual-${Date.now()}.${ext}`);
-    ui.mazeStatus.textContent = t("status.videoDone");
-    setVideoExportOverlayVisible(false);
+    const filename = `maze-visual-${Date.now()}.${ext}`;
+    triggerBlobDownload(blob, filename);
+    if (videoExportNeedsManualSaveLink()) {
+      showVideoExportManualDownloadUI(blob, filename, usedWebmFallback);
+    } else {
+      closeVideoExportOverlay();
+    }
+    ui.mazeStatus.textContent = usedWebmFallback ? t("status.videoExportUsedWebmDone") : t("status.videoDone");
     restorePreviewCanvasAfterVideoExport();
-  } catch (_e) {
-    setVideoExportOverlayVisible(false);
-    ui.mazeStatus.textContent = t("status.videoExportFail");
+  } catch (err) {
+    closeVideoExportOverlay();
+    const msg = err && err.message;
+    ui.mazeStatus.textContent =
+      msg === "no recorder mime" ? t("status.videoExportNoMime") : t("status.videoExportFail");
     restorePreviewCanvasAfterVideoExport();
   }
 }
@@ -2355,7 +2513,8 @@ function bindEvents() {
     }
   });
   ui.downloadPngBtn.addEventListener("click", downloadPng);
-  ui.downloadVideoBtn.addEventListener("click", downloadVideo);
+  ui.downloadVideoMp4Btn?.addEventListener("click", () => downloadVideo("mp4"));
+  ui.downloadVideoWebmBtn?.addEventListener("click", () => downloadVideo("webm"));
   ui.bgImageInput.addEventListener("change", (e) => handleBgImage(e.target.files[0]));
   ui.bgVideoInput.addEventListener("change", (e) => handleBgVideo(e.target.files[0]));
   ui.bgColorInput.addEventListener("input", () => drawVisual(true));
