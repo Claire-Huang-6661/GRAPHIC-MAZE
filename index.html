@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Graphic Maze</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="header-main">
+        <h1 data-i18n="header.title">Graphic Maze</h1>
+        <p class="header-tagline" data-i18n="header.tagline">先定义规则，再通过迷宫行走生成视觉结果。</p>
+      </div>
+      <div class="lang-switch" role="group" aria-label="Language">
+        <button type="button" id="langZh" class="lang-btn active" data-lang="zh">中文</button>
+        <button type="button" id="langEn" class="lang-btn" data-lang="en">EN</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="maze-panel card">
+        <div class="maze-topbar">
+          <button id="regenMazeBtn" data-i18n="maze.regen">重新随机迷宫</button>
+          <button type="button" id="galleryOpenBtn" class="gallery-entry-btn" data-i18n="maze.gallery">图库</button>
+          <span id="mazeStatus">准备开始</span>
+        </div>
+        <canvas id="mazeCanvas" width="480" height="480"></canvas>
+        <div class="maze-start-row">
+          <button id="startBtn" class="start-btn" data-i18n="maze.start">开始新游戏</button>
+        </div>
+        <div class="maze-meta">
+          <p class="maze-hint" data-i18n="maze.hint">使用键盘方向键行走：↑ ↓ ← →</p>
+          <p class="maze-remind" data-i18n="maze.remindAdjust">
+            请先点击「开始新游戏」，再进行图形调节。
+          </p>
+        </div>
+      </section>
+
+      <section class="control-panel card">
+        <h2 data-i18n="panel.rules">RULES / LIBRARY</h2>
+
+        <div class="group">
+          <h3 data-i18n="group.shapeLib">图形库选择（可多选）</h3>
+          <div id="shapeLibrary" class="shape-library"></div>
+          <div class="shape-color-palette-section">
+            <div id="shapeColorPalette" class="shape-color-palette"></div>
+            <button type="button" id="shapeColorsRandomBtn" class="shape-colors-random-btn" data-i18n="shapeColors.random">
+              随机颜色
+            </button>
+          </div>
+        </div>
+
+        <div class="group shape-layout-group">
+          <div class="shape-layout-row">
+            <h3 class="shape-layout-title" data-i18n="group.shapeLayout">图形位置</h3>
+            <div class="shape-layout-buttons">
+              <button type="button" id="shapeLayoutCenterBtn" class="shape-layout-btn shape-layout-btn--active" data-i18n="shapeLayout.center">
+                居中在画面
+              </button>
+              <button type="button" id="shapeLayoutRandomBtn" class="shape-layout-btn" data-i18n="shapeLayout.random">随机分布</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="group">
+          <label class="label label--row label--check">
+            <span data-i18n="label.graphicOnionSkin">图形变化洋葱皮</span>
+            <input id="graphicOnionSkin" type="checkbox" />
+          </label>
+        </div>
+
+        <div class="group">
+          <h3 data-i18n="group.mazeText">迷宫字形（可选）</h3>
+          <textarea
+            id="mazeTextInput"
+            class="maze-text-input"
+            rows="2"
+            maxlength="220"
+            spellcheck="false"
+            autocomplete="off"
+          ></textarea>
+          <div class="shape-layout-group maze-text-layout-group">
+            <div class="shape-layout-row">
+              <h3 class="shape-layout-title" data-i18n="group.textLayout">文字位置</h3>
+              <div class="shape-layout-buttons">
+                <button type="button" id="textLayoutCenterBtn" class="shape-layout-btn shape-layout-btn--active" data-i18n="shapeLayout.center">
+                  居中在画面
+                </button>
+                <button type="button" id="textLayoutRandomBtn" class="shape-layout-btn" data-i18n="shapeLayout.random">随机分布</button>
+              </div>
+            </div>
+          </div>
+          <details class="maze-text-more" id="mazeTextMoreDetails">
+            <summary class="maze-text-more-summary"><span data-i18n="mazeText.more">更多</span></summary>
+            <div class="maze-text-more-body">
+              <p class="maze-text-more-caption" data-i18n="mazeText.sectionSize">文字大小</p>
+              <label
+                ><span data-i18n="label.mazeTextSize">字号（相对自动排版）</span>
+                <input id="mazeTextSizeRange" type="range" min="55" max="185" step="5" value="100" />
+              </label>
+              <p class="maze-text-more-caption" data-i18n="mazeText.sectionStyle">文字样式</p>
+              <label class="label label--row">
+                <span data-i18n="label.mazeTextStroke">文字描边</span>
+                <input id="mazeTextStrokeEnabled" type="checkbox" checked />
+              </label>
+              <label>
+                <span data-i18n="label.mazeTextColor">文字颜色</span>
+                <input id="mazeTextColorInput" type="color" value="#ffffff" />
+              </label>
+              <label>
+                <span data-i18n="label.mazeTextStrokeColor">描边颜色</span>
+                <input id="mazeTextStrokeColorInput" type="color" value="#000000" />
+              </label>
+              <label
+                ><span data-i18n="label.mazeTextStrokeWidth">文字描边粗细</span>
+                <input id="mazeTextStrokeWidthRange" type="range" min="0.5" max="10" step="0.25" value="2.5" />
+              </label>
+              <p class="maze-text-more-caption" data-i18n="mazeText.sectionShapeStroke">图形描边</p>
+              <label class="label label--row">
+                <span data-i18n="label.stroke">图形描边</span>
+                <input id="strokeEnabled" type="checkbox" />
+              </label>
+              <label>
+                <span data-i18n="label.shapeStrokeColor">图形描边颜色</span>
+                <input id="strokeColorInput" type="color" value="#ffffff" />
+              </label>
+              <label
+                ><span data-i18n="label.shapeStrokeWidth">图形描边粗细</span>
+                <input id="shapeStrokeWidthRange" type="range" min="0.5" max="14" step="0.25" value="2" />
+              </label>
+            </div>
+          </details>
+        </div>
+
+        <div class="group">
+          <h3 data-i18n="group.rulesDir">方向键行为映射</h3>
+          <div class="grid-2">
+            <label
+              ><span data-i18n="rule.up">↑ 上</span>
+              <select id="ruleUp"></select>
+            </label>
+            <label
+              ><span data-i18n="rule.down">↓ 下</span>
+              <select id="ruleDown"></select>
+            </label>
+            <label
+              ><span data-i18n="rule.left">← 左</span>
+              <select id="ruleLeft"></select>
+            </label>
+            <label
+              ><span data-i18n="rule.right">→ 右</span>
+              <select id="ruleRight"></select>
+            </label>
+          </div>
+        </div>
+
+        <div class="group grid-2">
+          <label
+            ><span data-i18n="label.material">材质</span>
+            <select id="materialSelect"></select>
+          </label>
+          <label
+            ><span data-i18n="label.blend">叠加方式</span>
+            <select id="blendModeSelect"></select>
+          </label>
+          <label
+            ><span data-i18n="label.shapeSize">初始图形大小</span>
+            <input id="shapeSizeRange" type="range" min="20" max="160" value="72" />
+          </label>
+          <label
+            ><span data-i18n="label.grainStrength">胶片颗粒强度</span>
+            <input id="grainStrengthRange" type="range" min="8" max="92" value="42" />
+          </label>
+        </div>
+
+        <div class="group">
+          <h3 data-i18n="group.bg">背景设置</h3>
+          <details class="maze-text-more bg-more" id="bgMoreDetails">
+            <summary class="maze-text-more-summary"><span data-i18n="bg.more">更多</span></summary>
+            <div class="maze-text-more-body">
+              <div class="grid-2">
+                <label
+                  ><span data-i18n="label.bgColor">背景色</span>
+                  <input id="bgColorInput" type="color" value="#000000" />
+                </label>
+                <label class="label--row label--check">
+                  <span data-i18n="label.bgTransparent">背景透明</span>
+                  <input id="transparentBg" type="checkbox" />
+                </label>
+                <label
+                  ><span data-i18n="label.bgImage">背景图片</span>
+                  <input id="bgImageInput" type="file" accept="image/*" />
+                </label>
+                <label
+                  ><span data-i18n="label.bgVideo">背景视频</span>
+                  <input id="bgVideoInput" type="file" accept="video/*" />
+                </label>
+              </div>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section class="preview-panel card">
+        <h2 data-i18n="panel.preview">实时图形与动画预览</h2>
+        <div class="preview-canvas-wrap">
+          <canvas id="visualCanvas" width="640" height="480"></canvas>
+          <div
+            id="videoExportOverlay"
+            class="video-export-overlay"
+            hidden
+            role="status"
+            aria-live="polite"
+            aria-busy="false"
+          >
+            <div class="video-export-overlay__spinner" aria-hidden="true"></div>
+            <p class="video-export-overlay__label" data-i18n="status.videoExporting">正在导出视频…</p>
+          </div>
+        </div>
+
+        <div class="preview-panel-tools">
+          <div class="actions actions--with-options">
+            <div class="actions-row actions-row--exports">
+              <label class="label--row label--check playback-mute-label">
+                <span data-i18n="label.playbackMute">回放静音</span>
+                <input id="playbackMute" type="checkbox" />
+              </label>
+              <button id="downloadPngBtn" data-i18n="btn.png">下载图片</button>
+              <button id="downloadVideoBtn" data-i18n="btn.webm">下载视频(WebM)</button>
+            </div>
+          </div>
+
+          <div class="group group--replay-bottom">
+            <h3 data-i18n="group.replay">记录回放</h3>
+            <div class="replay-transport" id="replayTransport">
+              <div class="replay-btn-row" role="toolbar" aria-label="Replay">
+                <button type="button" id="replayBtnFirst" class="replay-icon-btn" data-i18n-aria="replay.ariaFirst" title="">
+                  <span class="replay-glyph" aria-hidden="true">|◀</span>
+                </button>
+                <button type="button" id="replayBtnPrev" class="replay-icon-btn" data-i18n-aria="replay.ariaPrev" title="">
+                  <span class="replay-glyph" aria-hidden="true">◀</span>
+                </button>
+                <button type="button" id="replayBtnPlayPause" class="replay-icon-btn replay-icon-btn--toggle" data-i18n-aria="replay.ariaPlay" title="">
+                  <span class="replay-glyph replay-glyph--play" aria-hidden="true">▶</span>
+                  <span class="replay-glyph replay-glyph--pause" aria-hidden="true">❚❚</span>
+                </button>
+                <button type="button" id="replayBtnNext" class="replay-icon-btn" data-i18n-aria="replay.ariaNext" title="">
+                  <span class="replay-glyph" aria-hidden="true">▶</span>
+                </button>
+                <button type="button" id="replayBtnLast" class="replay-icon-btn" data-i18n-aria="replay.ariaLast" title="">
+                  <span class="replay-glyph" aria-hidden="true">▶|</span>
+                </button>
+              </div>
+              <div class="replay-speed-wrap">
+                <label class="replay-speed-label">
+                  <span data-i18n="label.playbackSpeed">Speed</span>
+                  <input id="playbackSpeedRange" type="range" min="0.2" max="2.8" step="0.05" value="1" />
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div id="galleryModal" class="gallery-modal" aria-hidden="true">
+      <button type="button" class="gallery-modal__backdrop" data-gallery-close tabindex="-1">
+        <span class="visually-hidden" data-i18n="maze.galleryCloseBackdrop">关闭图库</span>
+      </button>
+      <div class="gallery-modal__sheet" role="dialog" aria-modal="true" aria-labelledby="galleryModalTitle">
+        <div class="gallery-modal__head">
+          <h2 id="galleryModalTitle" class="gallery-modal__title" data-i18n="maze.galleryTitle">终点图库</h2>
+          <button type="button" id="galleryCloseBtn" class="gallery-modal__x" data-gallery-close data-i18n-aria="maze.galleryCloseAria">
+            ×
+          </button>
+        </div>
+        <div class="gallery-modal__body">
+          <div id="galleryToolbar" class="gallery-toolbar">
+            <button type="button" id="galleryClearAllBtn" class="gallery-tool-btn" data-i18n="maze.galleryClearAll">一键清空</button>
+            <button type="button" id="galleryExportSelectedBtn" class="gallery-tool-btn" data-i18n="maze.galleryExportSelected">导出所选</button>
+            <button type="button" id="galleryDeleteSelectedBtn" class="gallery-tool-btn" data-i18n="maze.galleryDeleteSelected">删除所选</button>
+            <button type="button" id="galleryExportAllBtn" class="gallery-tool-btn" data-i18n="maze.galleryExportAll">一键导出</button>
+          </div>
+          <p id="galleryEmpty" class="gallery-empty" hidden data-i18n="maze.galleryEmpty">暂无记录</p>
+          <div id="galleryGrid" class="gallery-grid"></div>
+        </div>
+      </div>
+    </div>
+
+    <video id="bgVideoElement" muted loop playsinline class="hidden"></video>
+    <script src="./app.js"></script>
+  </body>
+</html>
