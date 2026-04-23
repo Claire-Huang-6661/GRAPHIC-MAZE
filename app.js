@@ -90,6 +90,7 @@ const ui = {
   mazeTextStrokeColorInput: document.getElementById("mazeTextStrokeColorInput"),
   mazeTextStrokeWidthRange: document.getElementById("mazeTextStrokeWidthRange"),
   shapeStrokeWidthRange: document.getElementById("shapeStrokeWidthRange"),
+  shapeCornerRadiusRange: document.getElementById("shapeCornerRadiusRange"),
   graphicOnionSkin: document.getElementById("graphicOnionSkin"),
   replayOnionSkin: document.getElementById("replayOnionSkin"),
   galleryOpenBtn: document.getElementById("galleryOpenBtn"),
@@ -207,6 +208,7 @@ const I18N = {
     "label.mazeTextStrokeColor": "描边颜色",
     "label.mazeTextStrokeWidth": "文字描边粗细",
     "label.shapeStrokeWidth": "图形描边粗细",
+    "label.shapeCornerRadius": "图形倒角（方、菱形）",
     "label.shapeStrokeColor": "图形描边颜色",
     "group.rulesDir": "方向键行为映射",
     "group.bg": "背景设置",
@@ -242,6 +244,7 @@ const I18N = {
     "status.replay": "动画回放中…",
     "status.videoExporting": "正在导出视频…",
     "status.videoExportFail": "视频导出失败，请重试或换浏览器。",
+    "status.videoExportNeedsHttps": "导出视频需要 HTTPS 或本机环境（GitHub Pages 为 https 即可）。",
     "status.videoDone": "视频导出完成",
     "action.rotateCW": "旋转+15°",
     "action.rotateCCW": "旋转-15°",
@@ -324,6 +327,7 @@ const I18N = {
     "label.mazeTextStrokeColor": "Outline color",
     "label.mazeTextStrokeWidth": "Text outline width",
     "label.shapeStrokeWidth": "Shape outline width",
+    "label.shapeCornerRadius": "Corner radius (square · diamond)",
     "label.shapeStrokeColor": "Shape outline color",
     "group.rulesDir": "Arrow key actions",
     "group.bg": "Background",
@@ -359,6 +363,7 @@ const I18N = {
     "status.replay": "Replaying…",
     "status.videoExporting": "Exporting video…",
     "status.videoExportFail": "Video export failed — try again or another browser.",
+    "status.videoExportNeedsHttps": "Video export needs HTTPS or localhost (GitHub Pages uses https).",
     "status.videoDone": "Video export finished",
     "action.rotateCW": "Rotate +15°",
     "action.rotateCCW": "Rotate −15°",
@@ -529,6 +534,7 @@ const DEFAULTS = {
   mazeTextStrokeColor: "#000000",
   mazeTextStrokeWidth: "2.5",
   shapeStrokeWidth: "2",
+  shapeCornerRadius: "0",
   graphicOnionSkin: false,
   replayOnionSkin: true,
 };
@@ -929,6 +935,7 @@ function initUi() {
   if (ui.mazeTextStrokeColorInput) ui.mazeTextStrokeColorInput.value = DEFAULTS.mazeTextStrokeColor;
   if (ui.mazeTextStrokeWidthRange) ui.mazeTextStrokeWidthRange.value = DEFAULTS.mazeTextStrokeWidth;
   if (ui.shapeStrokeWidthRange) ui.shapeStrokeWidthRange.value = DEFAULTS.shapeStrokeWidth;
+  if (ui.shapeCornerRadiusRange) ui.shapeCornerRadiusRange.value = DEFAULTS.shapeCornerRadius;
   if (ui.graphicOnionSkin) ui.graphicOnionSkin.checked = DEFAULTS.graphicOnionSkin;
   if (ui.replayOnionSkin) ui.replayOnionSkin.checked = DEFAULTS.replayOnionSkin;
   syncShapeLayoutButtons();
@@ -1360,6 +1367,12 @@ function getShapeStrokeLineWidth() {
   return Math.max(0.5, Math.min(16, Number.isFinite(v) ? v : 2));
 }
 
+/** 方形、菱形等路径的倒角半径（逻辑像素，0 为直角） */
+function getShapeCornerRadius() {
+  const v = Number(ui.shapeCornerRadiusRange?.value ?? DEFAULTS.shapeCornerRadius);
+  return Math.max(0, Math.min(48, Number.isFinite(v) ? v : 0));
+}
+
 function getMazeTextStrokeWidthPx() {
   const v = Number(ui.mazeTextStrokeWidthRange?.value ?? DEFAULTS.mazeTextStrokeWidth);
   return Math.max(0.25, Math.min(12, Number.isFinite(v) ? v : 2.5));
@@ -1541,22 +1554,39 @@ function drawBackground() {
   drawBackgroundToCtx(visualCtx);
 }
 
-function renderPath(ctx, shape, size) {
+function renderPath(ctx, shape, size, cornerR = 0) {
   const s = size;
+  const r = Math.max(0, cornerR);
+  const canRound = typeof ctx.roundRect === "function";
   ctx.beginPath();
   if (shape === "circle") ctx.arc(0, 0, s, 0, Math.PI * 2);
-  else if (shape === "square") ctx.rect(-s, -s, s * 2, s * 2);
-  else if (shape === "triangle") {
+  else if (shape === "square") {
+    if (r > 0 && canRound) {
+      const rr = Math.min(r, s * 0.95);
+      ctx.roundRect(-s, -s, s * 2, s * 2, rr);
+    } else {
+      ctx.rect(-s, -s, s * 2, s * 2);
+    }
+  } else if (shape === "triangle") {
     ctx.moveTo(0, -s);
     ctx.lineTo(s, s);
     ctx.lineTo(-s, s);
     ctx.closePath();
   } else if (shape === "diamond") {
-    ctx.moveTo(0, -s);
-    ctx.lineTo(s, 0);
-    ctx.lineTo(0, s);
-    ctx.lineTo(-s, 0);
-    ctx.closePath();
+    if (r > 0 && canRound) {
+      const half = s / Math.SQRT2;
+      const rr = Math.min(r, half * 0.92);
+      ctx.save();
+      ctx.rotate(Math.PI / 4);
+      ctx.roundRect(-half, -half, half * 2, half * 2, rr);
+      ctx.restore();
+    } else {
+      ctx.moveTo(0, -s);
+      ctx.lineTo(s, 0);
+      ctx.lineTo(0, s);
+      ctx.lineTo(-s, 0);
+      ctx.closePath();
+    }
   } else if (shape === "star") {
     for (let i = 0; i < 10; i += 1) {
       const angle = (Math.PI * i) / 5;
@@ -1661,7 +1691,8 @@ function drawShapeWithStyle(ctx, shapeState, styleOptions) {
       ? strokeColor
       : `hsla(${hue},${Math.max(0, sat)}%,${Math.max(6, Math.min(78, light - 12))}%,${Math.min(1, shapeState.alpha * 0.6)})`;
   }
-  renderPath(ctx, styleOptions.shape, shapeState.size);
+  const cornerR = getShapeCornerRadius();
+  renderPath(ctx, styleOptions.shape, shapeState.size, cornerR);
   if (!lineLike && styleOptions.material !== "wireframe") ctx.fill();
   if (lineLike) {
     ctx.lineWidth = Math.max(sw, shapeState.size * 0.08 * (sw / 2));
@@ -1697,7 +1728,7 @@ function drawShapeWithStyle(ctx, shapeState, styleOptions) {
   }
   if (!lineLike && styleOptions.material === "grain") {
     ctx.save();
-    renderPath(ctx, styleOptions.shape, shapeState.size);
+    renderPath(ctx, styleOptions.shape, shapeState.size, cornerR);
     ctx.clip();
     applyFilmGrainInClip(ctx, hue, sat);
     ctx.restore();
@@ -1883,8 +1914,13 @@ function triggerBlobDownload(blob, filename) {
   a.href = url;
   a.download = filename;
   a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 500);
 }
 
 function downloadDataUrlAsFile(dataUrl, filename) {
@@ -1892,7 +1928,10 @@ function downloadDataUrlAsFile(dataUrl, filename) {
   a.href = dataUrl;
   a.download = filename;
   a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
+  setTimeout(() => a.remove(), 500);
 }
 
 async function buildGalleryZipBlob(rows) {
@@ -2153,6 +2192,14 @@ function pickExportRecorderCandidate(wantAudioTrack) {
 
 async function downloadVideo() {
   if (game.records.length === 0) return;
+  if (!window.isSecureContext) {
+    ui.mazeStatus.textContent = t("status.videoExportNeedsHttps");
+    return;
+  }
+  if (typeof MediaRecorder === "undefined") {
+    ui.mazeStatus.textContent = t("status.videoExportFail");
+    return;
+  }
   setVideoExportOverlayVisible(true);
   ui.mazeStatus.textContent = t("status.videoExporting");
 
@@ -2249,13 +2296,9 @@ async function downloadVideo() {
 
     const outMime = recorder.mimeType || picked.mime;
     const blob = new Blob(chunks, { type: outMime });
-    const url = URL.createObjectURL(blob);
+    if (!blob.size) throw new Error("empty export blob");
     const ext = outMime.includes("mp4") || picked.mime.includes("mp4") ? "mp4" : picked.fileExt;
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `maze-visual-${Date.now()}.${ext}`;
-    a.click();
-    URL.revokeObjectURL(url);
+    triggerBlobDownload(blob, `maze-visual-${Date.now()}.${ext}`);
     ui.mazeStatus.textContent = t("status.videoDone");
     setVideoExportOverlayVisible(false);
     restorePreviewCanvasAfterVideoExport();
@@ -2407,6 +2450,10 @@ function bindEvents() {
     drawVisual(true);
   });
   ui.shapeStrokeWidthRange?.addEventListener("input", () => {
+    stopPlayback();
+    drawVisual(true);
+  });
+  ui.shapeCornerRadiusRange?.addEventListener("input", () => {
     stopPlayback();
     drawVisual(true);
   });
