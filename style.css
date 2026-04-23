@@ -581,6 +581,10 @@ button:hover {
   flex: 1;
   min-width: 120px;
   max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
 }
 
 .replay-speed-label {
@@ -598,6 +602,13 @@ button:hover {
 
 .replay-speed-label span {
   align-self: flex-start;
+}
+
+.replay-onion-label {
+  margin: 0;
+  opacity: 0.78;
+  font-size: 11px;
+  letter-spacing: 0.6px;
 }
 
 #playbackSpeedRange {
@@ -685,6 +696,14 @@ button:hover {
 .shape-colors-random-btn:hover {
   color: rgba(255, 255, 255, 0.95);
   border-color: rgba(255, 255, 255, 0.45);
+}
+
+.random-mix-shuffle-wrap {
+  margin-top: -6px;
+}
+
+.random-mix-shuffle-wrap .shape-colors-random-btn {
+  width: 100%;
 }
 
 .shape-color-palette {

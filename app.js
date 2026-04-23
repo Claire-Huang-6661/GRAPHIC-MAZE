@@ -51,6 +51,8 @@ const ui = {
   ruleLeft: document.getElementById("ruleLeft"),
   ruleRight: document.getElementById("ruleRight"),
   materialSelect: document.getElementById("materialSelect"),
+  randomMixShuffleBtn: document.getElementById("randomMixShuffleBtn"),
+  randomMixShuffleRow: document.getElementById("randomMixShuffleRow"),
   blendModeSelect: document.getElementById("blendModeSelect"),
   shapeSizeRange: document.getElementById("shapeSizeRange"),
   grainStrengthRange: document.getElementById("grainStrengthRange"),
@@ -84,6 +86,7 @@ const ui = {
   mazeTextStrokeWidthRange: document.getElementById("mazeTextStrokeWidthRange"),
   shapeStrokeWidthRange: document.getElementById("shapeStrokeWidthRange"),
   graphicOnionSkin: document.getElementById("graphicOnionSkin"),
+  replayOnionSkin: document.getElementById("replayOnionSkin"),
   galleryOpenBtn: document.getElementById("galleryOpenBtn"),
   galleryModal: document.getElementById("galleryModal"),
   galleryGrid: document.getElementById("galleryGrid"),
@@ -116,7 +119,39 @@ const ACTION_IDS = [
 
 const SHAPE_IDS = ["circle", "square", "triangle", "diamond", "star", "hexagon", "line", "spiral"];
 
-const MATERIAL_IDS = ["solid", "gradient", "grain", "neon", "wireframe", "smear"];
+const MATERIAL_IDS = ["solid", "gradient", "grain", "neon", "wireframe", "randomMix"];
+
+/** 随机混合材质从中抽取两种（不含 randomMix 自身） */
+const MIXABLE_MATERIAL_IDS = ["solid", "gradient", "grain", "neon", "wireframe"];
+
+function pickRandomMaterialPair() {
+  const pool = MIXABLE_MATERIAL_IDS;
+  const a = pool[(Math.random() * pool.length) | 0];
+  let b = pool[(Math.random() * pool.length) | 0];
+  let guard = 0;
+  while (b === a && pool.length > 1 && guard < 16) {
+    b = pool[(Math.random() * pool.length) | 0];
+    guard += 1;
+  }
+  return [a, b];
+}
+
+function assignRandomMixPairsToVisualShapes() {
+  visualShapes.forEach((s) => {
+    s.materialMixPair = pickRandomMaterialPair();
+  });
+}
+
+function clearMaterialMixOnVisualShapes() {
+  visualShapes.forEach((s) => {
+    delete s.materialMixPair;
+  });
+}
+
+function syncRandomMixShuffleUi() {
+  if (!ui.randomMixShuffleRow) return;
+  ui.randomMixShuffleRow.hidden = ui.materialSelect?.value !== "randomMix";
+}
 
 const BLEND_IDS = ["source-over", "screen", "multiply", "overlay", "difference", "lighter"];
 
@@ -154,6 +189,7 @@ const I18N = {
     "shapeColors.random": "随机颜色",
     "group.shapeLayout": "图形位置",
     "label.graphicOnionSkin": "图形变化洋葱皮",
+    "label.replayOnionSkin": "回放洋葱皮",
     "shapeLayout.center": "居中在画面",
     "shapeLayout.random": "随机分布",
     "mazeText.more": "更多（颜色、大小与描边）",
@@ -193,6 +229,7 @@ const I18N = {
     "bg.more": "更多（背景色、图与视频）",
     "btn.png": "下载图片",
     "btn.webm": "下载视频(WebM)",
+    "btn.randomMixAgain": "换一组混合",
     "status.clickStart": "请点击「开始新游戏」",
     "status.started": "开始！每次方向键会作用于全部图形",
     "status.playing": "进行中：{n} 步",
@@ -228,7 +265,7 @@ const I18N = {
     "mat.grain": "胶片颗粒",
     "mat.neon": "霓虹发光",
     "mat.wireframe": "线框",
-    "mat.smear": "涂抹",
+    "mat.randomMix": "随机混合",
     "blend.source-over": "正常",
     "blend.screen": "滤色",
     "blend.multiply": "正片叠底",
@@ -269,6 +306,7 @@ const I18N = {
     "shapeColors.random": "Random colors",
     "group.shapeLayout": "Shape placement",
     "label.graphicOnionSkin": "Onion skin",
+    "label.replayOnionSkin": "Replay onion skin",
     "shapeLayout.center": "Centered on canvas",
     "shapeLayout.random": "Random spread",
     "mazeText.more": "More (color, size & stroke)",
@@ -308,6 +346,7 @@ const I18N = {
     "bg.more": "More (color, image & video)",
     "btn.png": "Download PNG",
     "btn.webm": "Download WebM",
+    "btn.randomMixAgain": "Shuffle random mix",
     "status.clickStart": "Click “New game” to start",
     "status.started": "Go! Each arrow affects every shape",
     "status.playing": "Playing: {n} steps",
@@ -343,7 +382,7 @@ const I18N = {
     "mat.grain": "Film grain",
     "mat.neon": "Neon glow",
     "mat.wireframe": "Wireframe",
-    "mat.smear": "Smear / paint",
+    "mat.randomMix": "Random mix",
     "blend.source-over": "Normal",
     "blend.screen": "Screen",
     "blend.multiply": "Multiply",
@@ -430,6 +469,7 @@ function applyLanguage() {
   renderShapeLibrary();
   renderShapeColorPalette();
   refreshMazeStatusI18n();
+  syncRandomMixShuffleUi();
 }
 
 function refreshMazeStatusI18n() {
@@ -485,6 +525,7 @@ const DEFAULTS = {
   mazeTextStrokeWidth: "2.5",
   shapeStrokeWidth: "2",
   graphicOnionSkin: false,
+  replayOnionSkin: true,
 };
 
 const SETTINGS_STORAGE_KEY = "mazeVisualCreatorSettingsV1";
@@ -545,24 +586,29 @@ const DIRECTION_SOUNDS = {
   right: { freq: 560, type: "sawtooth", dur: 0.06, gain: 0.075 },
 };
 
-function playDirectionSound(direction) {
-  if (!direction) return;
-  resumeAudioContext();
-  if (!audioCtx) return;
+function connectDirectionSound(ctx, outNode, direction, startTime) {
+  if (!direction || !ctx || !outNode) return;
   const p = DIRECTION_SOUNDS[direction];
   if (!p) return;
-  const t0 = audioCtx.currentTime;
-  const osc = audioCtx.createOscillator();
-  const gn = audioCtx.createGain();
+  const t0 = startTime;
+  const osc = ctx.createOscillator();
+  const gn = ctx.createGain();
   osc.type = p.type;
   osc.frequency.setValueAtTime(p.freq, t0);
   gn.gain.setValueAtTime(0.0001, t0);
   gn.gain.exponentialRampToValueAtTime(p.gain, t0 + 0.01);
   gn.gain.exponentialRampToValueAtTime(0.0001, t0 + p.dur);
   osc.connect(gn);
-  gn.connect(audioCtx.destination);
+  gn.connect(outNode);
   osc.start(t0);
   osc.stop(t0 + p.dur + 0.03);
+}
+
+function playDirectionSound(direction) {
+  if (!direction) return;
+  resumeAudioContext();
+  if (!audioCtx) return;
+  connectDirectionSound(audioCtx, audioCtx.destination, direction, audioCtx.currentTime);
 }
 
 function setupViewCanvases() {
@@ -657,7 +703,7 @@ function stopPlayback(exitReplaySession = true) {
 
 function getReplaySpeed() {
   const v = Number(ui.playbackSpeedRange?.value);
-  if (Number.isFinite(v) && v > 0) return Math.min(3, Math.max(0.15, v));
+  if (Number.isFinite(v) && v > 0) return Math.min(3, Math.max(0.05, v));
   return 1;
 }
 
@@ -703,13 +749,15 @@ function renderReplayFrameOntoContext(targetCtx, pixelScale, displayIndex, opts 
   replayCtx.imageSmoothingEnabled = true;
   replayCtx.imageSmoothingQuality = "high";
   replayCtx.clearRect(0, 0, VIEW_LOGICAL_W, VIEW_LOGICAL_H);
-  const onionCount = 5;
-  for (let t = onionCount; t >= 1; t -= 1) {
-    const idx = i - t;
-    if (idx < 0) continue;
-    const prev = game.records[idx];
-    const ghostShapes = prev.shapes.map((s) => ({ ...s, alpha: Math.max(0.05, s.alpha * (0.12 * (onionCount - t + 1))) }));
-    drawFrameShapes(replayCtx, ghostShapes, prev.colors, prev.material, prev.blend);
+  if (ui.replayOnionSkin?.checked) {
+    const onionCount = 5;
+    for (let t = onionCount; t >= 1; t -= 1) {
+      const idx = i - t;
+      if (idx < 0) continue;
+      const prev = game.records[idx];
+      const ghostShapes = prev.shapes.map((s) => ({ ...s, alpha: Math.max(0.05, s.alpha * (0.12 * (onionCount - t + 1))) }));
+      drawFrameShapes(replayCtx, ghostShapes, prev.colors, prev.material, prev.blend);
+    }
   }
   drawFrameShapes(replayCtx, rec.shapes, rec.colors, rec.material, rec.blend);
   targetCtx.globalCompositeOperation = "source-over";
@@ -859,6 +907,7 @@ function initUi() {
   if (ui.mazeTextStrokeWidthRange) ui.mazeTextStrokeWidthRange.value = DEFAULTS.mazeTextStrokeWidth;
   if (ui.shapeStrokeWidthRange) ui.shapeStrokeWidthRange.value = DEFAULTS.shapeStrokeWidth;
   if (ui.graphicOnionSkin) ui.graphicOnionSkin.checked = DEFAULTS.graphicOnionSkin;
+  if (ui.replayOnionSkin) ui.replayOnionSkin.checked = DEFAULTS.replayOnionSkin;
   syncShapeLayoutButtons();
   syncTextLayoutButtons();
   applyLanguage();
@@ -952,6 +1001,8 @@ function resetVisualShapes() {
     clampShape(state);
     return state;
   });
+  if (ui.materialSelect.value === "randomMix") assignRandomMixPairsToVisualShapes();
+  else clearMaterialMixOnVisualShapes();
 }
 
 function repositionShapesRandomOnce() {
@@ -1197,6 +1248,11 @@ function splitShape(target) {
     rotation: target.rotation + randomBetween(-0.7, 0.7),
     alpha: Math.max(0.35, target.alpha * 0.96),
   };
+  if (ui.materialSelect.value === "randomMix") {
+    child.materialMixPair = pickRandomMaterialPair();
+  } else {
+    delete child.materialMixPair;
+  }
   clampShape(child);
   visualShapes.push(child);
 }
@@ -1507,6 +1563,24 @@ function renderPath(ctx, shape, size) {
 }
 
 function drawShapeWithStyle(ctx, shapeState, styleOptions) {
+  if (styleOptions.material === "randomMix") {
+    const pair = shapeState.materialMixPair;
+    const m1 =
+      pair && MIXABLE_MATERIAL_IDS.includes(pair[0]) ? pair[0] : MIXABLE_MATERIAL_IDS[0];
+    const m2 =
+      pair && MIXABLE_MATERIAL_IDS.includes(pair[1]) ? pair[1] : MIXABLE_MATERIAL_IDS[1];
+    if (m1 === m2) {
+      drawShapeWithStyle(ctx, shapeState, { ...styleOptions, material: m1 });
+      return;
+    }
+    drawShapeWithStyle(ctx, shapeState, { ...styleOptions, material: m1 });
+    ctx.save();
+    ctx.globalAlpha *= 0.52;
+    drawShapeWithStyle(ctx, shapeState, { ...styleOptions, material: m2 });
+    ctx.restore();
+    return;
+  }
+
   const sw = getShapeStrokeLineWidth();
   const baseHsl = hexToHsl(styleOptions.color);
   const hue = (baseHsl.h + shapeState.hueShift) % 360;
@@ -1549,11 +1623,6 @@ function drawShapeWithStyle(ctx, shapeState, styleOptions) {
       ? strokeColor
       : `hsla(${hue},${Math.max(0, sat)}%,${Math.max(6, Math.min(92, light + 8))}%,${shapeState.alpha})`;
     ctx.lineWidth = sw;
-  } else if (styleOptions.material === "smear") {
-    ctx.fillStyle = `hsla(${hue},${Math.max(0, sat)}%,${Math.max(8, Math.min(92, light))}%,${shapeState.alpha})`;
-    ctx.strokeStyle = useStroke
-      ? strokeColor
-      : `hsla(${hue},${Math.max(0, sat * 0.88)}%,${Math.max(6, Math.min(80, light - 10))}%,${Math.min(1, shapeState.alpha * 0.55)})`;
   } else {
     ctx.fillStyle = `hsla(${hue},${Math.max(0, sat)}%,${Math.max(8, Math.min(92, light))}%,${shapeState.alpha})`;
     ctx.strokeStyle = useStroke
@@ -1562,28 +1631,6 @@ function drawShapeWithStyle(ctx, shapeState, styleOptions) {
   }
   renderPath(ctx, styleOptions.shape, shapeState.size);
   if (!lineLike && styleOptions.material !== "wireframe") ctx.fill();
-  if (!lineLike && styleOptions.material === "smear") {
-    ctx.save();
-    renderPath(ctx, styleOptions.shape, shapeState.size);
-    ctx.clip();
-    ctx.filter = "blur(5px)";
-    ctx.globalCompositeOperation = "soft-light";
-    ctx.globalAlpha = Math.min(1, shapeState.alpha * 0.48);
-    ctx.fillStyle = `hsla(${hue},${Math.max(0, sat * 0.55)}%,${Math.max(10, light - 14)}%,1)`;
-    renderPath(ctx, styleOptions.shape, shapeState.size * 1.04);
-    ctx.fill();
-    ctx.globalCompositeOperation = "lighter";
-    ctx.globalAlpha = shapeState.alpha * 0.2;
-    ctx.fillStyle = `hsla(${(hue + 48) % 360},${sat * 0.38}%,${Math.min(92, light + 16)}%,1)`;
-    renderPath(ctx, styleOptions.shape, shapeState.size * 1.09);
-    ctx.fill();
-    ctx.filter = "blur(9px)";
-    ctx.globalAlpha = shapeState.alpha * 0.14;
-    ctx.fillStyle = `hsla(${hue},${sat * 0.3}%,${Math.max(12, light + 6)}%,1)`;
-    renderPath(ctx, styleOptions.shape, shapeState.size * 1.12);
-    ctx.fill();
-    ctx.restore();
-  }
   if (lineLike) {
     ctx.lineWidth = Math.max(sw, shapeState.size * 0.08 * (sw / 2));
     ctx.lineCap = "round";
@@ -1603,23 +1650,6 @@ function drawShapeWithStyle(ctx, shapeState, styleOptions) {
   }
   if (lineLike) {
     ctx.stroke();
-    if (styleOptions.material === "smear") {
-      ctx.save();
-      ctx.globalCompositeOperation = "lighter";
-      ctx.filter = "blur(3.5px)";
-      ctx.globalAlpha = shapeState.alpha * 0.42;
-      ctx.strokeStyle = `hsla(${(hue + 28) % 360},${sat * 0.62}%,${Math.min(90, light + 10)}%,0.55)`;
-      ctx.lineWidth = Math.max(sw, shapeState.size * 0.08 * (sw / 2)) * 2.1;
-      renderPath(ctx, styleOptions.shape, shapeState.size);
-      ctx.stroke();
-      ctx.filter = "blur(6px)";
-      ctx.globalAlpha = shapeState.alpha * 0.22;
-      ctx.strokeStyle = `hsla(${hue},${sat * 0.45}%,${light}%,0.4)`;
-      ctx.lineWidth = Math.max(sw, shapeState.size * 0.08 * (sw / 2)) * 2.6;
-      renderPath(ctx, styleOptions.shape, shapeState.size);
-      ctx.stroke();
-      ctx.restore();
-    }
     if (styleOptions.material === "grain") {
       const pad = Math.max(10, shapeState.size * 0.22);
       ctx.save();
@@ -2051,8 +2081,9 @@ async function downloadVideo() {
   ui.mazeStatus.textContent = t("status.videoExporting");
 
   const EXPORT_PIXEL_SCALE = 2;
-  const EXPORT_FPS = 30;
   const TARGET_BPS = 16_000_000;
+  const frameDelay = replayIntervalMs();
+  const streamFps = Math.min(60, Math.max(4, Math.round(1000 / Math.max(8, frameDelay))));
 
   try {
     const n = game.records.length;
@@ -2066,11 +2097,28 @@ async function downloadVideo() {
     exCtx.imageSmoothingEnabled = true;
     exCtx.imageSmoothingQuality = "high";
 
-    const mimeCandidates = [
-      { mime: "video/webm;codecs=vp9", bps: TARGET_BPS },
-      { mime: "video/webm;codecs=vp8", bps: Math.min(TARGET_BPS, 9_000_000) },
-      { mime: "video/webm", bps: 6_000_000 },
-    ];
+    const includeAudio = !ui.playbackMute.checked;
+    resumeAudioContext();
+
+    const videoStream = exportCanvas.captureStream(streamFps);
+    let dest = null;
+    let combinedStream = videoStream;
+    if (includeAudio && audioCtx) {
+      dest = audioCtx.createMediaStreamDestination();
+      const at = dest.stream.getAudioTracks()[0];
+      if (at) combinedStream = new MediaStream([...videoStream.getVideoTracks(), at]);
+    }
+
+    const wantsVideoAudio = combinedStream.getAudioTracks().length > 0;
+    const mimeCandidates = [];
+    if (wantsVideoAudio) {
+      mimeCandidates.push({ mime: "video/webm;codecs=vp9,opus", bps: TARGET_BPS });
+      mimeCandidates.push({ mime: "video/webm;codecs=vp8,opus", bps: Math.min(TARGET_BPS, 9_000_000) });
+    }
+    mimeCandidates.push({ mime: "video/webm;codecs=vp9", bps: TARGET_BPS });
+    mimeCandidates.push({ mime: "video/webm;codecs=vp8", bps: Math.min(TARGET_BPS, 9_000_000) });
+    mimeCandidates.push({ mime: "video/webm", bps: 6_000_000 });
+
     let picked = null;
     for (let c = 0; c < mimeCandidates.length; c += 1) {
       if (MediaRecorder.isTypeSupported(mimeCandidates[c].mime)) {
@@ -2080,17 +2128,17 @@ async function downloadVideo() {
     }
     if (!picked) throw new Error("no webm");
 
-    const stream = exportCanvas.captureStream(EXPORT_FPS);
-    const videoTrack = stream.getVideoTracks()[0];
+    const recOpts = { mimeType: picked.mime, videoBitsPerSecond: picked.bps };
+    if (wantsVideoAudio) recOpts.audioBitsPerSecond = 128000;
 
     let recorder;
     try {
-      recorder = new MediaRecorder(stream, { mimeType: picked.mime, videoBitsPerSecond: picked.bps });
+      recorder = new MediaRecorder(combinedStream, recOpts);
     } catch (_e1) {
       try {
-        recorder = new MediaRecorder(stream, { mimeType: picked.mime });
+        recorder = new MediaRecorder(combinedStream, { mimeType: picked.mime });
       } catch (_e2) {
-        recorder = new MediaRecorder(stream);
+        recorder = new MediaRecorder(combinedStream);
       }
     }
 
@@ -2104,10 +2152,14 @@ async function downloadVideo() {
       recorder.onerror = () => reject(new Error("recorder"));
     });
 
+    const videoTrack = videoStream.getVideoTracks()[0];
+
     recorder.start(400);
-    const frameDelay = 1000 / EXPORT_FPS;
     try {
       for (let frame = 0; frame < n; frame += 1) {
+        if (includeAudio && audioCtx && dest) {
+          connectDirectionSound(audioCtx, dest, game.records[frame].direction, audioCtx.currentTime + 0.02);
+        }
         renderReplayFrameOntoContext(exCtx, EXPORT_PIXEL_SCALE, frame, { playSound: false });
         if (videoTrack && typeof videoTrack.requestFrame === "function") {
           try {
@@ -2118,6 +2170,7 @@ async function downloadVideo() {
         }
         await new Promise((r) => setTimeout(r, frameDelay));
       }
+      await new Promise((r) => setTimeout(r, includeAudio && dest ? 400 : 80));
     } finally {
       if (recorder && recorder.state === "recording") {
         try {
@@ -2186,6 +2239,12 @@ function bindEvents() {
   ui.playbackSpeedRange?.addEventListener("input", () => {
     restartReplayTimerIfPlaying();
   });
+  ui.replayOnionSkin?.addEventListener("change", () => {
+    if (window.__replayActive && game.records.length) {
+      const idx = Number.isFinite(window.__replayShown) ? window.__replayShown : 0;
+      renderOneReplayFrame(idx, { playSound: false });
+    }
+  });
   ui.downloadPngBtn.addEventListener("click", downloadPng);
   ui.downloadVideoBtn.addEventListener("click", downloadVideo);
   ui.bgImageInput.addEventListener("change", (e) => handleBgImage(e.target.files[0]));
@@ -2194,6 +2253,15 @@ function bindEvents() {
   ui.transparentBg.addEventListener("change", () => drawVisual(true));
   ui.materialSelect.addEventListener("change", () => {
     stopPlayback();
+    if (ui.materialSelect.value === "randomMix") assignRandomMixPairsToVisualShapes();
+    else clearMaterialMixOnVisualShapes();
+    syncRandomMixShuffleUi();
+    drawVisual(true);
+  });
+  ui.randomMixShuffleBtn?.addEventListener("click", () => {
+    if (ui.materialSelect.value !== "randomMix") return;
+    stopPlayback();
+    assignRandomMixPairsToVisualShapes();
     drawVisual(true);
   });
   ui.blendModeSelect.addEventListener("change", () => {
